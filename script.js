@@ -1,7 +1,7 @@
 // Bump this whenever compositing logic changes — printed onto the result
 // photo so screenshots sent back for debugging show which build actually
 // ran, since iOS Safari can cache script.js and silently serve a stale copy.
-const APP_VERSION = "v4";
+const APP_VERSION = "v5";
 
 const SUITS = [
   { key: "S", symbol: "♠", color: "black" },
@@ -513,7 +513,7 @@ function compositeWithOpenCv(canvas, img) {
     quad[3].x, quad[3].y,
   ]);
   const quadVec = new cv.MatVector();
-  const innerQuad = shrinkQuadTowardCentroid(quad, 0.15);
+  const innerQuad = shrinkQuadTowardCentroid(quad, 0.32);
   const innerMask = cv.Mat.zeros(photoMat.rows, photoMat.cols, cv.CV_8UC1);
   const innerPtsInt = cv.matFromArray(4, 1, cv.CV_32SC2, [
     innerQuad[0].x, innerQuad[0].y,
