@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Card Switch</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- MENU SCREEN -->
+  <section id="menuScreen" class="screen">
+    <div class="menu-wrap">
+      <h1>Card Switch</h1>
+      <p class="subtitle">Snap a card, reveal any card you want.</p>
+      <button class="menu-btn" id="startTrickBtn">Start Trick</button>
+      <div class="menu-note">Camera access is required — this only works when served over https or localhost, not opened as a plain file.</div>
+    </div>
+  </section>
+
+  <!-- CAMERA SCREEN -->
+  <section id="cameraScreen" class="screen hidden fullbleed">
+    <div class="camera-wrap" id="cameraWrap">
+      <video id="cameraVideo" autoplay playsinline muted></video>
+      <div class="guide-rect" id="guideRect"></div>
+      <div class="camera-hint">Align the card inside the outline</div>
+      <div class="camera-error hidden" id="cameraError"></div>
+    </div>
+    <div class="camera-controls">
+      <button class="round-btn secondary" id="cameraBackBtn">&larr;</button>
+      <button class="shutter-btn" id="shutterBtn"></button>
+      <div class="round-btn spacer"></div>
+    </div>
+  </section>
+
+  <!-- PICK CARD SCREEN -->
+  <section id="pickScreen" class="screen hidden">
+    <div class="topbar">
+      <button class="back-btn" id="pickBackBtn">&larr; Retake</button>
+      <h2>Pick the reveal</h2>
+      <div></div>
+    </div>
+    <div class="hint" style="text-align: center;">Tap the card you want the photo to show</div>
+    <div class="card-grid" id="pickGrid"></div>
+  </section>
+
+  <!-- FAKE GALLERY / PHOTO VIEWER SCREEN -->
+  <section id="galleryScreen" class="screen hidden fullbleed dark-photo-viewer">
+    <div class="photo-viewer">
+      <div class="photo-topbar">
+        <button class="photo-back-btn" id="galleryBackBtn">&#8249; Photos</button>
+      </div>
+      <div class="photo-stage">
+        <img id="resultImage" alt="Result">
+      </div>
+      <div class="photo-bottombar">
+        <button class="photo-icon-btn" id="shareBtn" title="Save to gallery">
+          <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2l4.5 4.5-1.4 1.4L13 5.8V15h-2V5.8L8.9 7.9 7.5 6.5 12 2zM5 20v-8h2v6h10v-6h2v8H5z"/></svg>
+        </button>
+        <button class="photo-icon-btn" disabled title="Favorite">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 21s-7.5-4.6-10-9.3C.5 8 2.4 4.5 6 4.5c2 0 3.6 1.2 6 3.7 2.4-2.5 4-3.7 6-3.7 3.6 0 5.5 3.5 4 7.2C19.5 16.4 12 21 12 21z"/></svg>
+        </button>
+        <button class="photo-icon-btn" disabled title="Info">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
+        </button>
+        <button class="photo-icon-btn" disabled title="Delete">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M6 7h12l-1 14H7zm3-4h6l1 2H8zM9 10v8m6-8v8" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="save-confirm hidden" id="saveConfirm">Saved to gallery</div>
+    <button class="new-trick-btn" id="newTrickBtn">New Trick</button>
+  </section>
+
+  <canvas id="workCanvas" class="hidden"></canvas>
+
+  <script src="script.js"></script>
+</body>
+</html>

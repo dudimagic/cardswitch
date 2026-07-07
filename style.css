@@ -1,0 +1,354 @@
+:root {
+  --bg: #0f1115;
+  --card-bg: #171a21;
+  --card-bg-2: #1e222b;
+  --accent: #6c8cff;
+  --accent-2: #6ee7b7;
+  --danger: #ff6b5e;
+  --text: #eef1f6;
+  --text-dim: #8b93a3;
+  --border: #262b36;
+  --face: #fdfbf5;
+  --red: #e0483f;
+  --black: #1a1c22;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow-x: hidden;
+}
+
+.hidden { display: none !important; }
+
+.screen {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+.screen.fullbleed {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* MENU */
+.menu-wrap {
+  text-align: center;
+  padding-top: 18vh;
+}
+
+.menu-wrap h1 {
+  font-size: 30px;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  font-size: 15px;
+  margin: 0 0 32px;
+}
+
+.menu-btn {
+  background: var(--accent);
+  border: none;
+  color: #0c1020;
+  font-size: 17px;
+  font-weight: 700;
+  padding: 16px 40px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.menu-btn:active { transform: scale(0.97); }
+
+.menu-note {
+  margin-top: 28px;
+  font-size: 12px;
+  color: var(--text-dim);
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* CAMERA SCREEN */
+#cameraScreen {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  overflow: hidden;
+}
+
+.camera-wrap {
+  position: relative;
+  width: 100%;
+  height: calc(100% - 130px);
+  overflow: hidden;
+  background: #000;
+}
+
+#cameraVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.guide-rect {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 58vw;
+  max-width: 320px;
+  aspect-ratio: 2.5 / 3.5;
+  transform: translate(-50%, -50%);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.camera-hint {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #fff;
+  font-size: 13px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.camera-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+  color: var(--danger);
+  font-size: 14px;
+  background: #000;
+}
+
+.camera-controls {
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 30px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #000;
+}
+
+.round-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.round-btn.spacer {
+  background: transparent;
+  pointer-events: none;
+}
+
+.shutter-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff;
+  border: 4px solid rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+
+.shutter-btn:active { transform: scale(0.94); }
+
+/* TOPBAR (pick screen) */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.topbar h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.back-btn:hover { color: var(--text); }
+
+.hint {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+/* CARD GRID (reused pattern) */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  gap: 6px;
+}
+
+.card-tile {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  background: var(--face);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: 700;
+  border: 2px solid transparent;
+  transition: transform 0.1s ease, border-color 0.15s ease;
+  user-select: none;
+}
+
+.card-tile:active { transform: scale(0.94); }
+
+.card-tile.red { color: var(--red); }
+.card-tile.black { color: var(--black); }
+
+.card-tile .rank { font-size: 12px; line-height: 1; }
+.card-tile .suit { font-size: 14px; line-height: 1.2; }
+
+@media (max-width: 480px) {
+  .card-tile .rank { font-size: 8px; }
+  .card-tile .suit { font-size: 10px; }
+}
+
+/* FAKE PHOTO GALLERY / VIEWER */
+.dark-photo-viewer {
+  background: #000;
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+.photo-viewer {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.photo-topbar {
+  padding: calc(env(safe-area-inset-top) + 14px) 16px 14px;
+  background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0));
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+}
+
+.photo-back-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 17px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.photo-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.photo-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.photo-bottombar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 14px 20px calc(env(safe-area-inset-bottom) + 14px);
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6));
+}
+
+.photo-icon-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 8px;
+}
+
+.photo-icon-btn[disabled] {
+  color: rgba(255,255,255,0.3);
+  cursor: default;
+}
+
+.save-confirm {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 60px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 34, 0.9);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 999px;
+  z-index: 3;
+}
+
+.new-trick-btn {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 90px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  border: none;
+  color: #0c1020;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  z-index: 3;
+}
