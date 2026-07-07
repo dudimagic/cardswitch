@@ -214,16 +214,21 @@ function detectCardQuad(canvas) {
 function detectSkinMask(canvas) {
   const src = cv.imread(canvas);
   const rgb = new cv.Mat();
-  const ycrcb = new cv.Mat();
-  const low = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [0, 135, 85, 0]);
-  const high = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [255, 180, 135, 0]);
+  const hsv = new cv.Mat();
+  // H: reddish/orange hue range typical of skin (OpenCV hue is 0-179)
+  // S: minimum saturation floor is the important part here — white/cream
+  //    card backgrounds are low-saturation, so this excludes them even
+  //    when lighting shifts their hue into the skin range
+  // V: excludes near-black shadow pixels
+  const low = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [0, 45, 60, 0]);
+  const high = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [25, 180, 255, 0]);
   const mask = new cv.Mat();
   const kernel = cv.Mat.ones(5, 5, cv.CV_8U);
 
   try {
     cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
-    cv.cvtColor(rgb, ycrcb, cv.COLOR_RGB2YCrCb);
-    cv.inRange(ycrcb, low, high, mask);
+    cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+    cv.inRange(hsv, low, high, mask);
     cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kernel);
     cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kernel);
     cv.GaussianBlur(mask, mask, new cv.Size(9, 9), 0);
@@ -231,7 +236,7 @@ function detectSkinMask(canvas) {
   } finally {
     src.delete();
     rgb.delete();
-    ycrcb.delete();
+    hsv.delete();
     low.delete();
     high.delete();
     kernel.delete();
@@ -317,7 +322,13 @@ function compositeWithOpenCv(canvas, img) {
   const cardCanvas = document.createElement("canvas");
   cardCanvas.width = img.naturalWidth;
   cardCanvas.height = img.naturalHeight;
-  cardCanvas.getContext("2d").drawImage(img, 0, 0);
+  const cardCtx = cardCanvas.getContext("2d");
+  // flatten onto opaque white first — the card PNGs have transparent
+  // rounded corners, which would otherwise leave faint alpha artifacts
+  // after compositing and re-encoding as JPEG
+  cardCtx.fillStyle = "#ffffff";
+  cardCtx.fillRect(0, 0, cardCanvas.width, cardCanvas.height);
+  cardCtx.drawImage(img, 0, 0);
 
   const photoMat = cv.imread(capturedPhotoCanvas);
   const cardMat = cv.imread(cardCanvas);
