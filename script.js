@@ -194,6 +194,19 @@ function fallbackQuadFromGuideRect() {
   ];
 }
 
+// Moves each corner toward the quad's centroid by `factor`, producing a
+// smaller quad fully inside the original — used to protect the card's own
+// interior from being mistaken for skin, since fingers only ever overlap
+// a card near its edges.
+function shrinkQuadTowardCentroid(quad, factor) {
+  const cx = quad.reduce((s, p) => s + p.x, 0) / quad.length;
+  const cy = quad.reduce((s, p) => s + p.y, 0) / quad.length;
+  return quad.map((p) => ({
+    x: cx + (p.x - cx) * (1 - factor),
+    y: cy + (p.y - cy) * (1 - factor),
+  }));
+}
+
 function polygonArea(pts) {
   let area = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -461,8 +474,20 @@ function compositeWithOpenCv(canvas, img) {
     quad[3].x, quad[3].y,
   ]);
   const quadVec = new cv.MatVector();
+  const innerQuad = shrinkQuadTowardCentroid(quad, 0.22);
+  const innerMask = cv.Mat.zeros(photoMat.rows, photoMat.cols, cv.CV_8UC1);
+  const innerPtsInt = cv.matFromArray(4, 1, cv.CV_32SC2, [
+    innerQuad[0].x, innerQuad[0].y,
+    innerQuad[1].x, innerQuad[1].y,
+    innerQuad[2].x, innerQuad[2].y,
+    innerQuad[3].x, innerQuad[3].y,
+  ]);
+  const innerVec = new cv.MatVector();
   let skinMask = null;
-  let notSkin = null;
+  let outerRing = null;
+  let skinInRing = null;
+  let notSkinInRing = null;
+  let outerKept = null;
   let finalMask = null;
 
   let colorMatched = null;
@@ -471,12 +496,27 @@ function compositeWithOpenCv(canvas, img) {
     cv.warpPerspective(cardMat, warped, M, new cv.Size(photoMat.cols, photoMat.rows));
     quadVec.push_back(quadPtsInt);
     cv.fillPoly(quadMask, quadVec, new cv.Scalar(255));
+    innerVec.push_back(innerPtsInt);
+    cv.fillPoly(innerMask, innerVec, new cv.Scalar(255));
 
+    // fingers only ever overlap a held card near its edges, never its
+    // center — so only let skin detection cut into the outer ring of the
+    // quad, and always treat the shrunk interior as fully covered by the
+    // new card. Without this, a false-positive skin match anywhere on the
+    // real card's own surface (e.g. under warm indoor lighting or glare)
+    // erases large parts of the replacement and lets the original card
+    // show through underneath it.
     skinMask = detectSkinMask(capturedPhotoCanvas);
-    notSkin = new cv.Mat();
-    cv.bitwise_not(skinMask, notSkin);
+    outerRing = new cv.Mat();
+    cv.bitwise_xor(quadMask, innerMask, outerRing);
+    skinInRing = new cv.Mat();
+    cv.bitwise_and(skinMask, outerRing, skinInRing);
+    notSkinInRing = new cv.Mat();
+    cv.bitwise_not(skinInRing, notSkinInRing);
+    outerKept = new cv.Mat();
+    cv.bitwise_and(outerRing, notSkinInRing, outerKept);
     finalMask = new cv.Mat();
-    cv.bitwise_and(quadMask, notSkin, finalMask);
+    cv.bitwise_or(innerMask, outerKept, finalMask);
     // soften the mask edge so the card-to-thumb boundary blends smoothly
     // instead of a hard, jagged on/off cut
     cv.GaussianBlur(finalMask, finalMask, new cv.Size(11, 11), 0);
@@ -520,8 +560,14 @@ function compositeWithOpenCv(canvas, img) {
     quadMask.delete();
     quadPtsInt.delete();
     quadVec.delete();
+    innerMask.delete();
+    innerPtsInt.delete();
+    innerVec.delete();
     if (skinMask) skinMask.delete();
-    if (notSkin) notSkin.delete();
+    if (outerRing) outerRing.delete();
+    if (skinInRing) skinInRing.delete();
+    if (notSkinInRing) notSkinInRing.delete();
+    if (outerKept) outerKept.delete();
     if (finalMask) finalMask.delete();
     if (colorMatched) colorMatched.delete();
   }
