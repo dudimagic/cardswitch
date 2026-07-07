@@ -176,8 +176,52 @@ function takePhoto() {
   }
 
   runCardDetection();
-  renderPickGrid();
-  showScreen("pick");
+  showDetectionPreview();
+}
+
+// Diagnostic mode: draws the detected card quad in green directly on the
+// captured photo, with no card swap happening at all, so detection
+// accuracy can be checked on its own before trusting it to composite
+// anything on top of it.
+function showDetectionPreview() {
+  const canvas = document.getElementById("workCanvas");
+  canvas.width = capturedPhotoCanvas.width;
+  canvas.height = capturedPhotoCanvas.height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(capturedPhotoCanvas, 0, 0);
+
+  const quad = detectedQuad || fallbackQuadFromGuideRect();
+  const lineWidth = Math.max(3, Math.round(canvas.width * 0.006));
+  ctx.strokeStyle = "#00ff00";
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.moveTo(quad[0].x, quad[0].y);
+  for (let i = 1; i < quad.length; i++) ctx.lineTo(quad[i].x, quad[i].y);
+  ctx.closePath();
+  ctx.stroke();
+
+  const dotRadius = Math.max(5, Math.round(canvas.width * 0.009));
+  ctx.fillStyle = "#00ff00";
+  quad.forEach((p) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, dotRadius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  const detectText = document.getElementById("detectStatus").textContent;
+  const fontSize = Math.max(16, Math.round(canvas.width * 0.016));
+  ctx.font = `${fontSize}px monospace`;
+  const padding = fontSize * 0.5;
+  const boxWidth = ctx.measureText(detectText).width + padding * 2;
+  const boxHeight = fontSize * 1.6;
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(0, canvas.height - boxHeight, boxWidth, boxHeight);
+  ctx.fillStyle = "#00ff00";
+  ctx.fillText(detectText, padding, canvas.height - boxHeight * 0.3);
+
+  document.getElementById("resultImage").src = canvas.toDataURL("image/jpeg", 0.92);
+  document.getElementById("saveConfirm").classList.add("hidden");
+  showScreen("gallery");
 }
 
 document.getElementById("shutterBtn").addEventListener("click", takePhoto);
