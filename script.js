@@ -477,15 +477,39 @@ function compositeWithOpenCv(canvas, img) {
     cv.bitwise_not(skinMask, notSkin);
     finalMask = new cv.Mat();
     cv.bitwise_and(quadMask, notSkin, finalMask);
+    // soften the mask edge so the card-to-thumb boundary blends smoothly
+    // instead of a hard, jagged on/off cut
+    cv.GaussianBlur(finalMask, finalMask, new cv.Size(11, 11), 0);
 
     try {
       colorMatched = matchColorToRegion(warped, photoMat, finalMask);
     } catch (err) {
       colorMatched = null; // fall back to the un-matched warp below
     }
+    const finalCardMat = colorMatched || warped;
 
-    (colorMatched || warped).copyTo(photoMat, finalMask);
-    cv.imshow(canvas, photoMat);
+    // composite via canvas alpha blending (using finalMask as the alpha
+    // channel) rather than a hard copyTo, so the soft mask edge actually
+    // produces a smooth blended boundary
+    const w = photoMat.cols;
+    const h = photoMat.rows;
+    const layerData = new Uint8ClampedArray(w * h * 4);
+    const colorData = finalCardMat.data;
+    const maskData = finalMask.data;
+    for (let i = 0; i < w * h; i++) {
+      layerData[i * 4] = colorData[i * 4];
+      layerData[i * 4 + 1] = colorData[i * 4 + 1];
+      layerData[i * 4 + 2] = colorData[i * 4 + 2];
+      layerData[i * 4 + 3] = maskData[i];
+    }
+    const layerCanvas = document.createElement("canvas");
+    layerCanvas.width = w;
+    layerCanvas.height = h;
+    layerCanvas.getContext("2d").putImageData(new ImageData(layerData, w, h), 0, 0);
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(capturedPhotoCanvas, 0, 0);
+    ctx.drawImage(layerCanvas, 0, 0);
   } finally {
     photoMat.delete();
     cardMat.delete();
@@ -503,59 +527,45 @@ function compositeWithOpenCv(canvas, img) {
   }
 }
 
-// Rescales `srcRgba`'s LAB color statistics (lightness, color temperature,
-// contrast) to match `targetRgba`'s statistics within `mask`, so the pasted
-// card picks up the real photo's actual lighting instead of looking flat.
+// Samples the real card's actual white background color under the room's
+// current lighting (brightness + color cast), then applies that as a
+// per-channel white-balance gain to the replacement card — this targets
+// the card's white background specifically, rather than an overall
+// statistical average that tends to under-correct flat white areas.
 function matchColorToRegion(srcRgba, targetRgba, mask) {
-  const srcRgb = new cv.Mat();
   const targetRgb = new cv.Mat();
-  const srcLab = new cv.Mat();
-  const targetLab = new cv.Mat();
-  const srcMean = new cv.Mat();
-  const srcStd = new cv.Mat();
-  const targetMean = new cv.Mat();
-  const targetStd = new cv.Mat();
-  let adjustedRgb = null;
-  let adjustedRgba = null;
+  const gray = new cv.Mat();
+  const brightMask = new cv.Mat();
+  const combinedMask = new cv.Mat();
+  const channels = new cv.MatVector();
+  let adjusted = null;
 
   try {
-    cv.cvtColor(srcRgba, srcRgb, cv.COLOR_RGBA2RGB);
     cv.cvtColor(targetRgba, targetRgb, cv.COLOR_RGBA2RGB);
-    cv.cvtColor(srcRgb, srcLab, cv.COLOR_RGB2Lab);
-    cv.cvtColor(targetRgb, targetLab, cv.COLOR_RGB2Lab);
+    cv.cvtColor(targetRgb, gray, cv.COLOR_RGB2GRAY);
 
-    cv.meanStdDev(srcLab, srcMean, srcStd, mask);
-    cv.meanStdDev(targetLab, targetMean, targetStd, mask);
+    const stats = cv.minMaxLoc(gray, mask);
+    const brightThresh = Math.max(0, stats.maxVal - 30);
+    cv.threshold(gray, brightMask, brightThresh, 255, cv.THRESH_BINARY);
+    cv.bitwise_and(brightMask, mask, combinedMask);
 
-    const sm = [srcMean.doubleAt(0, 0), srcMean.doubleAt(1, 0), srcMean.doubleAt(2, 0)];
-    const ss = [srcStd.doubleAt(0, 0), srcStd.doubleAt(1, 0), srcStd.doubleAt(2, 0)];
-    const tm = [targetMean.doubleAt(0, 0), targetMean.doubleAt(1, 0), targetMean.doubleAt(2, 0)];
-    const ts = [targetStd.doubleAt(0, 0), targetStd.doubleAt(1, 0), targetStd.doubleAt(2, 0)];
+    const whiteMean = cv.mean(targetRgb, combinedMask);
+    const gain = [0, 1, 2].map((c) => Math.max(0.2, Math.min(1.3, whiteMean[c] / 255)));
 
-    const data = srcLab.data;
-    for (let i = 0; i < data.length; i += 3) {
-      for (let c = 0; c < 3; c++) {
-        const std = ss[c] < 1e-3 ? 1 : ss[c];
-        const v = (data[i + c] - sm[c]) * (ts[c] / std) + tm[c];
-        data[i + c] = Math.max(0, Math.min(255, v));
-      }
+    cv.split(srcRgba, channels);
+    for (let c = 0; c < 3; c++) {
+      const ch = channels.get(c);
+      cv.convertScaleAbs(ch, ch, gain[c], 0);
     }
-
-    adjustedRgb = new cv.Mat();
-    cv.cvtColor(srcLab, adjustedRgb, cv.COLOR_Lab2RGB);
-    adjustedRgba = new cv.Mat();
-    cv.cvtColor(adjustedRgb, adjustedRgba, cv.COLOR_RGB2RGBA);
-    return adjustedRgba;
+    adjusted = new cv.Mat();
+    cv.merge(channels, adjusted);
+    return adjusted;
   } finally {
-    srcRgb.delete();
     targetRgb.delete();
-    srcLab.delete();
-    targetLab.delete();
-    srcMean.delete();
-    srcStd.delete();
-    targetMean.delete();
-    targetStd.delete();
-    if (adjustedRgb) adjustedRgb.delete();
+    gray.delete();
+    brightMask.delete();
+    combinedMask.delete();
+    channels.delete();
   }
 }
 
