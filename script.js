@@ -1,7 +1,15 @@
 // Bump this whenever compositing logic changes — printed onto the result
 // photo so screenshots sent back for debugging show which build actually
 // ran, since iOS Safari can cache script.js and silently serve a stale copy.
-const APP_VERSION = "v5";
+const APP_VERSION = "v6";
+
+// ORB feature-matching against a single reference photo turned out to be
+// too unreliable for a mostly-blank playing card (few distinctive
+// features to match), producing quads that don't consistently match the
+// real card's actual size/position. Falling back to the on-screen guide
+// rectangle instead — the performer already aligns the real card to it
+// visually, so it's a WYSIWYG placement with none of the matching noise.
+const USE_SMART_DETECTION = false;
 
 const SUITS = [
   { key: "S", symbol: "♠", color: "black" },
@@ -370,6 +378,11 @@ function setDetectStatus(text) {
 }
 
 function runCardDetection() {
+  if (!USE_SMART_DETECTION) {
+    detectedQuad = fallbackQuadFromGuideRect();
+    setDetectStatus("Using guide box alignment.");
+    return;
+  }
   if (!window.cvReady) {
     detectedQuad = fallbackQuadFromGuideRect();
     setDetectStatus("Vision engine still loading — using guide box for this shot.");
