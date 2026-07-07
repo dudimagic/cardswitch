@@ -19,7 +19,7 @@ const RANK_FILE_NAMES = { A: "1", J: "jack", Q: "queen", K: "king" };
 function cardImagePath(card) {
   const suitName = SUIT_FILE_NAMES[card.suit];
   const rankName = RANK_FILE_NAMES[card.rank] || card.rank;
-  return `assets/cards/${suitName}_${rankName}.png`;
+  return `assets/cards/${suitName}_${rankName}.svg`;
 }
 
 const cardImages = {};
