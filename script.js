@@ -1,3 +1,8 @@
+// Bump this whenever compositing logic changes — printed onto the result
+// photo so screenshots sent back for debugging show which build actually
+// ran, since iOS Safari can cache script.js and silently serve a stale copy.
+const APP_VERSION = "v4";
+
 const SUITS = [
   { key: "S", symbol: "♠", color: "black" },
   { key: "H", symbol: "♥", color: "red" },
@@ -404,6 +409,36 @@ function renderPickGrid() {
   });
 }
 
+// Temporary diagnostic label burned into the result photo — makes it
+// possible to tell from a screenshot alone which build ran, which
+// compositing path was used, and how the detected/fallback quad size
+// compares to the actual photo, instead of guessing blind.
+function drawDebugOverlay(canvas, pipeline, detectText) {
+  const quad = detectedQuad || fallbackQuadFromGuideRect();
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  const qw = Math.max(...xs) - Math.min(...xs);
+  const qh = Math.max(...ys) - Math.min(...ys);
+  const lines = [
+    `${APP_VERSION} | ${pipeline}`,
+    detectText || "",
+    `quad ${Math.round(qw)}x${Math.round(qh)} / photo ${canvas.width}x${canvas.height}`,
+  ];
+  const ctx = canvas.getContext("2d");
+  const fontSize = Math.max(16, Math.round(canvas.width * 0.014));
+  ctx.font = `${fontSize}px monospace`;
+  const padding = fontSize * 0.5;
+  const lineHeight = fontSize * 1.3;
+  const boxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padding * 2;
+  const boxHeight = lineHeight * lines.length + padding;
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(0, canvas.height - boxHeight, boxWidth, boxHeight);
+  ctx.fillStyle = "#7CFC7C";
+  lines.forEach((line, i) => {
+    ctx.fillText(line, padding, canvas.height - boxHeight + padding + lineHeight * (i + 0.8));
+  });
+}
+
 async function revealCard(card) {
   const img = await getCardImage(card);
   const canvas = document.getElementById("workCanvas");
@@ -424,6 +459,10 @@ async function revealCard(card) {
   if (usedFallback) {
     compositeSimplePaste(canvas, img);
   }
+
+  const pipeline = usedFallback ? "fallback-simple-paste" : "opencv-warp";
+  const detectText = document.getElementById("detectStatus").textContent;
+  drawDebugOverlay(canvas, pipeline, detectText);
 
   document.getElementById("resultImage").src = canvas.toDataURL("image/jpeg", 0.92);
   document.getElementById("saveConfirm").classList.add("hidden");
