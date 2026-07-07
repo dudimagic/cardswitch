@@ -13,6 +13,31 @@ function findSuit(key) {
   return SUITS.find((s) => s.key === key);
 }
 
+const SUIT_FILE_NAMES = { S: "spade", H: "heart", D: "diamond", C: "club" };
+const RANK_FILE_NAMES = { A: "1", J: "jack", Q: "queen", K: "king" };
+
+function cardImagePath(card) {
+  const suitName = SUIT_FILE_NAMES[card.suit];
+  const rankName = RANK_FILE_NAMES[card.rank] || card.rank;
+  return `assets/cards/${suitName}_${rankName}.png`;
+}
+
+const cardImages = {};
+function preloadCardImages() {
+  ALL_CARDS.forEach((card) => {
+    const img = new Image();
+    img.src = cardImagePath(card);
+    cardImages[`${card.suit}${card.rank}`] = img;
+  });
+}
+preloadCardImages();
+
+function getCardImage(card) {
+  const img = cardImages[`${card.suit}${card.rank}`];
+  if (img.complete && img.naturalWidth > 0) return Promise.resolve(img);
+  return new Promise((resolve) => img.addEventListener("load", () => resolve(img), { once: true }));
+}
+
 let mediaStream = null;
 let capturedPhotoCanvas = null;
 let guideRectNative = null;
@@ -104,89 +129,29 @@ function takePhoto() {
 
 document.getElementById("shutterBtn").addEventListener("click", takePhoto);
 
-/* ---------- CARD RENDERING ---------- */
-
-function roundRectPath(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function drawCardFace(ctx, x, y, w, h, card) {
-  const suitInfo = findSuit(card.suit);
-  const color = suitInfo.color === "red" ? "#e0483f" : "#1a1c22";
-  const radius = w * 0.08;
-
-  ctx.save();
-  ctx.translate(x, y);
-
-  roundRectPath(ctx, 0, 0, w, h, radius);
-  ctx.fillStyle = "#fdfbf5";
-  ctx.fill();
-  ctx.lineWidth = Math.max(1, w * 0.012);
-  ctx.strokeStyle = "rgba(0,0,0,0.2)";
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.textBaseline = "top";
-
-  const cornerPad = w * 0.09;
-  const rankSize = w * 0.16;
-  const suitSize = w * 0.13;
-
-  ctx.font = `800 ${rankSize}px -apple-system, sans-serif`;
-  ctx.textAlign = "left";
-  ctx.fillText(card.rank, cornerPad, cornerPad * 0.7);
-  ctx.font = `${suitSize}px -apple-system, sans-serif`;
-  ctx.fillText(suitInfo.symbol, cornerPad, cornerPad * 0.7 + rankSize * 1.05);
-
-  ctx.save();
-  ctx.translate(w, h);
-  ctx.rotate(Math.PI);
-  ctx.font = `800 ${rankSize}px -apple-system, sans-serif`;
-  ctx.textAlign = "left";
-  ctx.fillText(card.rank, cornerPad, cornerPad * 0.7);
-  ctx.font = `${suitSize}px -apple-system, sans-serif`;
-  ctx.fillText(suitInfo.symbol, cornerPad, cornerPad * 0.7 + rankSize * 1.05);
-  ctx.restore();
-
-  ctx.textAlign = "center";
-  const centerRankSize = w * 0.32;
-  const centerSuitSize = w * 0.38;
-  ctx.font = `800 ${centerRankSize}px -apple-system, sans-serif`;
-  ctx.fillText(card.rank, w / 2, h * 0.22);
-  ctx.font = `${centerSuitSize}px -apple-system, sans-serif`;
-  ctx.fillText(suitInfo.symbol, w / 2, h * 0.46);
-
-  ctx.restore();
-}
-
 /* ---------- PICK SCREEN ---------- */
 
 function renderPickGrid() {
   const grid = document.getElementById("pickGrid");
   grid.innerHTML = "";
   ALL_CARDS.forEach((card) => {
-    const suitInfo = findSuit(card.suit);
     const tile = document.createElement("div");
-    tile.className = `card-tile ${suitInfo.color}`;
-    tile.innerHTML = `<div class="rank">${card.rank}</div><div class="suit">${suitInfo.symbol}</div>`;
+    tile.className = "card-tile";
+    tile.innerHTML = `<img src="${cardImagePath(card)}" alt="${card.rank} of ${findSuit(card.suit).symbol}">`;
     tile.addEventListener("click", () => revealCard(card));
     grid.appendChild(tile);
   });
 }
 
-function revealCard(card) {
+async function revealCard(card) {
+  const img = await getCardImage(card);
+
   const canvas = document.getElementById("workCanvas");
   canvas.width = capturedPhotoCanvas.width;
   canvas.height = capturedPhotoCanvas.height;
   const ctx = canvas.getContext("2d");
   ctx.drawImage(capturedPhotoCanvas, 0, 0);
-  drawCardFace(ctx, guideRectNative.x, guideRectNative.y, guideRectNative.width, guideRectNative.height, card);
+  ctx.drawImage(img, guideRectNative.x, guideRectNative.y, guideRectNative.width, guideRectNative.height);
 
   document.getElementById("resultImage").src = canvas.toDataURL("image/jpeg", 0.92);
   document.getElementById("saveConfirm").classList.add("hidden");
