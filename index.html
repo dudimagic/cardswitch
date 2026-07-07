@@ -23,7 +23,7 @@
     <div class="camera-wrap" id="cameraWrap">
       <video id="cameraVideo" autoplay playsinline muted></video>
       <div class="guide-rect" id="guideRect"></div>
-      <div class="camera-hint">Align the card inside the outline</div>
+      <div class="camera-hint">Keep the card roughly inside the outline</div>
       <div class="camera-error hidden" id="cameraError"></div>
     </div>
     <div class="camera-controls">
@@ -41,6 +41,7 @@
       <div></div>
     </div>
     <div class="hint" style="text-align: center;">Tap the card you want the photo to show</div>
+    <div class="detect-status" id="detectStatus"></div>
     <div class="card-grid" id="pickGrid"></div>
   </section>
 
@@ -74,6 +75,14 @@
 
   <canvas id="workCanvas" class="hidden"></canvas>
 
+  <script>
+    function onOpenCvReady() {
+      if (typeof cv !== "undefined" && cv["onRuntimeInitialized"] !== undefined) {
+        cv["onRuntimeInitialized"] = () => { window.cvReady = true; };
+      }
+    }
+  </script>
+  <script async src="assets/opencv.js" onload="onOpenCvReady()"></script>
   <script src="script.js"></script>
 </body>
 </html>

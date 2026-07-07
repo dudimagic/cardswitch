@@ -41,6 +41,7 @@ function getCardImage(card) {
 let mediaStream = null;
 let capturedPhotoCanvas = null;
 let guideRectNative = null;
+let detectedQuad = null;
 
 function showScreen(name) {
   ["menu", "camera", "pick", "gallery"].forEach((n) => {
@@ -123,11 +124,146 @@ function takePhoto() {
   capturedPhotoCanvas = canvas;
 
   stopCamera();
+  runCardDetection();
   renderPickGrid();
   showScreen("pick");
 }
 
 document.getElementById("shutterBtn").addEventListener("click", takePhoto);
+
+/* ---------- CARD DETECTION (OpenCV.js) ---------- */
+
+function fallbackQuadFromGuideRect() {
+  const r = guideRectNative;
+  return [
+    { x: r.x, y: r.y },
+    { x: r.x + r.width, y: r.y },
+    { x: r.x + r.width, y: r.y + r.height },
+    { x: r.x, y: r.y + r.height },
+  ];
+}
+
+function orderQuadPoints(pts) {
+  const sums = pts.map((p) => p.x + p.y);
+  const diffs = pts.map((p) => p.y - p.x);
+  const topLeft = pts[sums.indexOf(Math.min(...sums))];
+  const bottomRight = pts[sums.indexOf(Math.max(...sums))];
+  const topRight = pts[diffs.indexOf(Math.min(...diffs))];
+  const bottomLeft = pts[diffs.indexOf(Math.max(...diffs))];
+  return [topLeft, topRight, bottomRight, bottomLeft];
+}
+
+function detectCardQuad(canvas) {
+  const src = cv.imread(canvas);
+  const gray = new cv.Mat();
+  const blurred = new cv.Mat();
+  const edges = new cv.Mat();
+  const dilated = new cv.Mat();
+  const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  let best = null;
+
+  try {
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.Canny(blurred, edges, 50, 150);
+    cv.dilate(edges, dilated, kernel);
+    cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+    const minArea = canvas.width * canvas.height * 0.03;
+    let bestArea = 0;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      const peri = cv.arcLength(cnt, true);
+      const approx = new cv.Mat();
+      cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+      if (approx.rows === 4) {
+        const area = Math.abs(cv.contourArea(approx));
+        if (area > bestArea && area > minArea) {
+          bestArea = area;
+          if (best) best.delete();
+          best = approx.clone();
+        }
+      }
+      approx.delete();
+      cnt.delete();
+    }
+
+    if (!best) return null;
+
+    const pts = [];
+    for (let i = 0; i < 4; i++) {
+      pts.push({ x: best.intPtr(i, 0)[0], y: best.intPtr(i, 0)[1] });
+    }
+    return orderQuadPoints(pts);
+  } finally {
+    src.delete();
+    gray.delete();
+    blurred.delete();
+    edges.delete();
+    dilated.delete();
+    kernel.delete();
+    contours.delete();
+    hierarchy.delete();
+    if (best) best.delete();
+  }
+}
+
+function detectSkinMask(canvas) {
+  const src = cv.imread(canvas);
+  const rgb = new cv.Mat();
+  const ycrcb = new cv.Mat();
+  const low = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [0, 135, 85, 0]);
+  const high = new cv.Mat(src.rows, src.cols, cv.CV_8UC3, [255, 180, 135, 0]);
+  const mask = new cv.Mat();
+  const kernel = cv.Mat.ones(5, 5, cv.CV_8U);
+
+  try {
+    cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
+    cv.cvtColor(rgb, ycrcb, cv.COLOR_RGB2YCrCb);
+    cv.inRange(ycrcb, low, high, mask);
+    cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kernel);
+    cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kernel);
+    cv.GaussianBlur(mask, mask, new cv.Size(9, 9), 0);
+    return mask.clone();
+  } finally {
+    src.delete();
+    rgb.delete();
+    ycrcb.delete();
+    low.delete();
+    high.delete();
+    kernel.delete();
+    mask.delete();
+  }
+}
+
+function setDetectStatus(text) {
+  const el = document.getElementById("detectStatus");
+  if (el) el.textContent = text;
+}
+
+function runCardDetection() {
+  if (!window.cvReady) {
+    detectedQuad = fallbackQuadFromGuideRect();
+    setDetectStatus("Vision engine still loading — using guide box for this shot.");
+    return;
+  }
+  try {
+    const quad = detectCardQuad(capturedPhotoCanvas);
+    if (quad) {
+      detectedQuad = quad;
+      setDetectStatus("Card detected.");
+    } else {
+      detectedQuad = fallbackQuadFromGuideRect();
+      setDetectStatus("Card outline not found — using guide box instead.");
+    }
+  } catch (err) {
+    detectedQuad = fallbackQuadFromGuideRect();
+    setDetectStatus("Detection error — using guide box instead.");
+  }
+}
 
 /* ---------- PICK SCREEN ---------- */
 
@@ -145,17 +281,99 @@ function renderPickGrid() {
 
 async function revealCard(card) {
   const img = await getCardImage(card);
-
   const canvas = document.getElementById("workCanvas");
   canvas.width = capturedPhotoCanvas.width;
   canvas.height = capturedPhotoCanvas.height;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(capturedPhotoCanvas, 0, 0);
-  ctx.drawImage(img, guideRectNative.x, guideRectNative.y, guideRectNative.width, guideRectNative.height);
+
+  let usedFallback = false;
+  if (window.cvReady) {
+    try {
+      compositeWithOpenCv(canvas, img);
+    } catch (err) {
+      usedFallback = true;
+    }
+  } else {
+    usedFallback = true;
+  }
+
+  if (usedFallback) {
+    compositeSimplePaste(canvas, img);
+  }
 
   document.getElementById("resultImage").src = canvas.toDataURL("image/jpeg", 0.92);
   document.getElementById("saveConfirm").classList.add("hidden");
   showScreen("gallery");
+}
+
+function compositeSimplePaste(canvas, img) {
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(capturedPhotoCanvas, 0, 0);
+  ctx.drawImage(img, guideRectNative.x, guideRectNative.y, guideRectNative.width, guideRectNative.height);
+}
+
+function compositeWithOpenCv(canvas, img) {
+  const quad = detectedQuad || fallbackQuadFromGuideRect();
+
+  const cardCanvas = document.createElement("canvas");
+  cardCanvas.width = img.naturalWidth;
+  cardCanvas.height = img.naturalHeight;
+  cardCanvas.getContext("2d").drawImage(img, 0, 0);
+
+  const photoMat = cv.imread(capturedPhotoCanvas);
+  const cardMat = cv.imread(cardCanvas);
+  const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    0, 0,
+    cardMat.cols, 0,
+    cardMat.cols, cardMat.rows,
+    0, cardMat.rows,
+  ]);
+  const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    quad[0].x, quad[0].y,
+    quad[1].x, quad[1].y,
+    quad[2].x, quad[2].y,
+    quad[3].x, quad[3].y,
+  ]);
+  const M = cv.getPerspectiveTransform(srcPts, dstPts);
+  const warped = new cv.Mat();
+  const quadMask = cv.Mat.zeros(photoMat.rows, photoMat.cols, cv.CV_8UC1);
+  const quadPtsInt = cv.matFromArray(4, 1, cv.CV_32SC2, [
+    quad[0].x, quad[0].y,
+    quad[1].x, quad[1].y,
+    quad[2].x, quad[2].y,
+    quad[3].x, quad[3].y,
+  ]);
+  const quadVec = new cv.MatVector();
+  let skinMask = null;
+  let notSkin = null;
+  let finalMask = null;
+
+  try {
+    cv.warpPerspective(cardMat, warped, M, new cv.Size(photoMat.cols, photoMat.rows));
+    quadVec.push_back(quadPtsInt);
+    cv.fillPoly(quadMask, quadVec, new cv.Scalar(255));
+
+    skinMask = detectSkinMask(capturedPhotoCanvas);
+    notSkin = new cv.Mat();
+    cv.bitwise_not(skinMask, notSkin);
+    finalMask = new cv.Mat();
+    cv.bitwise_and(quadMask, notSkin, finalMask);
+
+    warped.copyTo(photoMat, finalMask);
+    cv.imshow(canvas, photoMat);
+  } finally {
+    photoMat.delete();
+    cardMat.delete();
+    srcPts.delete();
+    dstPts.delete();
+    M.delete();
+    warped.delete();
+    quadMask.delete();
+    quadPtsInt.delete();
+    quadVec.delete();
+    if (skinMask) skinMask.delete();
+    if (notSkin) notSkin.delete();
+    if (finalMask) finalMask.delete();
+  }
 }
 
 /* ---------- SAVE / SHARE ---------- */

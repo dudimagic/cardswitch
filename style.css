@@ -116,10 +116,16 @@ body {
   max-width: 320px;
   aspect-ratio: 2.5 / 3.5;
   transform: translate(-50%, -50%);
-  border: 3px solid rgba(255, 255, 255, 0.85);
+  border: 2px dashed rgba(255, 255, 255, 0.6);
   border-radius: 14px;
-  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
   pointer-events: none;
+}
+
+.detect-status {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: -12px 0 16px;
 }
 
 .camera-hint {
