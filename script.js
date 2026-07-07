@@ -80,6 +80,68 @@ function updateReferenceStatus() {
 }
 updateReferenceStatus();
 
+// The guide box is hand-aligned to the real card by eye, so the raw crop
+// almost always includes a bit of background margin around the actual
+// card edges. Every future detection treats this crop's full bounds as
+// the card's four corners, so that margin gets baked into every detected
+// quad afterward, making the replacement consistently oversized. This
+// finds the card's actual tight boundary within the crop (bright card
+// against a comparatively darker background) and re-crops to just that,
+// so detection isn't dependent on pixel-perfect manual alignment.
+function tightenCardCrop(canvas) {
+  const mat = cv.imread(canvas);
+  const gray = new cv.Mat();
+  const binary = new cv.Mat();
+  try {
+    cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+    const w = binary.cols;
+    const h = binary.rows;
+    const data = binary.data;
+    const colCount = new Array(w).fill(0);
+    const rowCount = new Array(h).fill(0);
+    for (let y = 0; y < h; y++) {
+      const rowOffset = y * w;
+      for (let x = 0; x < w; x++) {
+        if (data[rowOffset + x] > 0) {
+          colCount[x]++;
+          rowCount[y]++;
+        }
+      }
+    }
+
+    const minFraction = 0.5;
+    let left = 0;
+    let right = w - 1;
+    let top = 0;
+    let bottom = h - 1;
+    while (left < w && colCount[left] / h < minFraction) left++;
+    while (right > left && colCount[right] / h < minFraction) right--;
+    while (top < h && rowCount[top] / w < minFraction) top++;
+    while (bottom > top && rowCount[bottom] / w < minFraction) bottom--;
+
+    const boxW = right - left;
+    const boxH = bottom - top;
+    // sanity-check the result — if thresholding didn't cleanly separate
+    // the card from its background, fall back to the untightened crop
+    // rather than risk cropping into the card itself
+    if (boxW < w * 0.5 || boxH < h * 0.5) return canvas;
+
+    const tightCanvas = document.createElement("canvas");
+    tightCanvas.width = boxW;
+    tightCanvas.height = boxH;
+    tightCanvas.getContext("2d").drawImage(canvas, left, top, boxW, boxH, 0, 0, boxW, boxH);
+    return tightCanvas;
+  } catch (err) {
+    return canvas;
+  } finally {
+    mat.delete();
+    gray.delete();
+    binary.delete();
+  }
+}
+
 function saveReferenceCardFromCapture() {
   const r = guideRectNative;
   const cropCanvas = document.createElement("canvas");
@@ -88,7 +150,9 @@ function saveReferenceCardFromCapture() {
   cropCanvas
     .getContext("2d")
     .drawImage(capturedPhotoCanvas, r.x, r.y, r.width, r.height, 0, 0, cropCanvas.width, cropCanvas.height);
-  localStorage.setItem(REFERENCE_KEY, cropCanvas.toDataURL("image/jpeg", 0.95));
+
+  const finalCanvas = window.cvReady ? tightenCardCrop(cropCanvas) : cropCanvas;
+  localStorage.setItem(REFERENCE_KEY, finalCanvas.toDataURL("image/jpeg", 0.95));
   loadReferenceImageIntoMemory();
   updateReferenceStatus();
 }
