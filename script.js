@@ -357,7 +357,8 @@ function takePhoto() {
   }
 
   runCardDetection();
-  showDetectionPreview();
+  renderPickGrid();
+  showScreen("pick");
 }
 
 // Diagnostic mode: draws the detected card quad in green directly on the
