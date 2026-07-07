@@ -42,11 +42,55 @@ let mediaStream = null;
 let capturedPhotoCanvas = null;
 let guideRectNative = null;
 let detectedQuad = null;
+let captureMode = "trick"; // "trick" | "reference"
 
 function showScreen(name) {
   ["menu", "camera", "pick", "gallery"].forEach((n) => {
     document.getElementById(`${n}Screen`).classList.toggle("hidden", n !== name);
   });
+}
+
+function setCameraHint(text) {
+  document.getElementById("cameraHint").textContent = text;
+}
+
+/* ---------- REFERENCE CARD ---------- */
+
+const REFERENCE_KEY = "cardSwitchReferenceCard_v1";
+let referenceImageEl = null;
+
+function loadReferenceImageIntoMemory() {
+  const dataUrl = localStorage.getItem(REFERENCE_KEY);
+  if (!dataUrl) {
+    referenceImageEl = null;
+    return;
+  }
+  const img = new Image();
+  img.src = dataUrl;
+  referenceImageEl = img;
+}
+loadReferenceImageIntoMemory();
+
+function updateReferenceStatus() {
+  const el = document.getElementById("referenceStatus");
+  const has = !!localStorage.getItem(REFERENCE_KEY);
+  el.textContent = has
+    ? "Reference card is set."
+    : "No reference card set yet — set one before performing, or detection will fall back to the guide box.";
+}
+updateReferenceStatus();
+
+function saveReferenceCardFromCapture() {
+  const r = guideRectNative;
+  const cropCanvas = document.createElement("canvas");
+  cropCanvas.width = Math.round(r.width);
+  cropCanvas.height = Math.round(r.height);
+  cropCanvas
+    .getContext("2d")
+    .drawImage(capturedPhotoCanvas, r.x, r.y, r.width, r.height, 0, 0, cropCanvas.width, cropCanvas.height);
+  localStorage.setItem(REFERENCE_KEY, cropCanvas.toDataURL("image/jpeg", 0.95));
+  loadReferenceImageIntoMemory();
+  updateReferenceStatus();
 }
 
 /* ---------- CAMERA ---------- */
@@ -124,6 +168,13 @@ function takePhoto() {
   capturedPhotoCanvas = canvas;
 
   stopCamera();
+
+  if (captureMode === "reference") {
+    saveReferenceCardFromCapture();
+    showScreen("menu");
+    return;
+  }
+
   runCardDetection();
   renderPickGrid();
   showScreen("pick");
@@ -143,71 +194,122 @@ function fallbackQuadFromGuideRect() {
   ];
 }
 
-function orderQuadPoints(pts) {
-  const sums = pts.map((p) => p.x + p.y);
-  const diffs = pts.map((p) => p.y - p.x);
-  const topLeft = pts[sums.indexOf(Math.min(...sums))];
-  const bottomRight = pts[sums.indexOf(Math.max(...sums))];
-  const topRight = pts[diffs.indexOf(Math.min(...diffs))];
-  const bottomLeft = pts[diffs.indexOf(Math.max(...diffs))];
-  return [topLeft, topRight, bottomRight, bottomLeft];
+function polygonArea(pts) {
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    area += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
+  return Math.abs(area / 2);
 }
 
+function isReasonableQuad(pts, photoW, photoH) {
+  const area = polygonArea(pts);
+  const minArea = photoW * photoH * 0.01;
+  const maxArea = photoW * photoH * 0.9;
+  if (area < minArea || area > maxArea) return false;
+  return pts.every(
+    (p) => p.x > -photoW * 0.2 && p.x < photoW * 1.2 && p.y > -photoH * 0.2 && p.y < photoH * 1.2
+  );
+}
+
+// Finds the known reference card (always the real 9 of spades photographed
+// via "Set Reference Card") inside the scene photo using ORB feature matching
+// + homography, rather than guessing at generic edges in the scene.
 function detectCardQuad(canvas) {
-  const src = cv.imread(canvas);
-  const gray = new cv.Mat();
-  const blurred = new cv.Mat();
-  const edges = new cv.Mat();
-  const dilated = new cv.Mat();
-  const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-  let best = null;
+  if (!referenceImageEl || !referenceImageEl.complete || referenceImageEl.naturalWidth === 0) {
+    return null;
+  }
+
+  const refCanvas = document.createElement("canvas");
+  refCanvas.width = referenceImageEl.naturalWidth;
+  refCanvas.height = referenceImageEl.naturalHeight;
+  refCanvas.getContext("2d").drawImage(referenceImageEl, 0, 0);
+
+  const refMat = cv.imread(refCanvas);
+  const sceneMat = cv.imread(canvas);
+  const refGray = new cv.Mat();
+  const sceneGray = new cv.Mat();
+  const refKeypoints = new cv.KeyPointVector();
+  const sceneKeypoints = new cv.KeyPointVector();
+  const refDescriptors = new cv.Mat();
+  const sceneDescriptors = new cv.Mat();
+  const emptyMask = new cv.Mat();
+  const matches = new cv.DMatchVector();
+  const orb = new cv.ORB(1500);
+  const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+  let srcMat = null;
+  let dstMat = null;
+  let H = null;
+  let refCorners = null;
+  let sceneCorners = null;
 
   try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-    cv.Canny(blurred, edges, 50, 150);
-    cv.dilate(edges, dilated, kernel);
-    cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+    cv.cvtColor(refMat, refGray, cv.COLOR_RGBA2GRAY);
+    cv.cvtColor(sceneMat, sceneGray, cv.COLOR_RGBA2GRAY);
 
-    const minArea = canvas.width * canvas.height * 0.03;
-    let bestArea = 0;
+    orb.detectAndCompute(refGray, emptyMask, refKeypoints, refDescriptors);
+    orb.detectAndCompute(sceneGray, emptyMask, sceneKeypoints, sceneDescriptors);
 
-    for (let i = 0; i < contours.size(); i++) {
-      const cnt = contours.get(i);
-      const peri = cv.arcLength(cnt, true);
-      const approx = new cv.Mat();
-      cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-      if (approx.rows === 4) {
-        const area = Math.abs(cv.contourArea(approx));
-        if (area > bestArea && area > minArea) {
-          bestArea = area;
-          if (best) best.delete();
-          best = approx.clone();
-        }
-      }
-      approx.delete();
-      cnt.delete();
-    }
+    if (refDescriptors.rows < 10 || sceneDescriptors.rows < 10) return null;
 
-    if (!best) return null;
+    bf.match(refDescriptors, sceneDescriptors, matches);
+
+    const matchArr = [];
+    for (let i = 0; i < matches.size(); i++) matchArr.push(matches.get(i));
+    if (matchArr.length < 15) return null;
+
+    matchArr.sort((a, b) => a.distance - b.distance);
+    const good = matchArr.slice(0, Math.min(80, matchArr.length));
+
+    const srcPtsArr = [];
+    const dstPtsArr = [];
+    good.forEach((m) => {
+      const rp = refKeypoints.get(m.queryIdx).pt;
+      const sp = sceneKeypoints.get(m.trainIdx).pt;
+      srcPtsArr.push(rp.x, rp.y);
+      dstPtsArr.push(sp.x, sp.y);
+    });
+
+    srcMat = cv.matFromArray(good.length, 1, cv.CV_32FC2, srcPtsArr);
+    dstMat = cv.matFromArray(good.length, 1, cv.CV_32FC2, dstPtsArr);
+    H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5);
+    if (H.empty()) return null;
+
+    refCorners = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,
+      refCanvas.width, 0,
+      refCanvas.width, refCanvas.height,
+      0, refCanvas.height,
+    ]);
+    sceneCorners = new cv.Mat();
+    cv.perspectiveTransform(refCorners, sceneCorners, H);
 
     const pts = [];
     for (let i = 0; i < 4; i++) {
-      pts.push({ x: best.intPtr(i, 0)[0], y: best.intPtr(i, 0)[1] });
+      pts.push({ x: sceneCorners.data32F[i * 2], y: sceneCorners.data32F[i * 2 + 1] });
     }
-    return orderQuadPoints(pts);
+
+    if (!isReasonableQuad(pts, canvas.width, canvas.height)) return null;
+    return pts;
   } finally {
-    src.delete();
-    gray.delete();
-    blurred.delete();
-    edges.delete();
-    dilated.delete();
-    kernel.delete();
-    contours.delete();
-    hierarchy.delete();
-    if (best) best.delete();
+    refMat.delete();
+    sceneMat.delete();
+    refGray.delete();
+    sceneGray.delete();
+    refKeypoints.delete();
+    sceneKeypoints.delete();
+    refDescriptors.delete();
+    sceneDescriptors.delete();
+    emptyMask.delete();
+    matches.delete();
+    orb.delete();
+    bf.delete();
+    if (srcMat) srcMat.delete();
+    if (dstMat) dstMat.delete();
+    if (H) H.delete();
+    if (refCorners) refCorners.delete();
+    if (sceneCorners) sceneCorners.delete();
   }
 }
 
@@ -255,14 +357,19 @@ function runCardDetection() {
     setDetectStatus("Vision engine still loading — using guide box for this shot.");
     return;
   }
+  if (!referenceImageEl) {
+    detectedQuad = fallbackQuadFromGuideRect();
+    setDetectStatus("No reference card set — using guide box instead.");
+    return;
+  }
   try {
     const quad = detectCardQuad(capturedPhotoCanvas);
     if (quad) {
       detectedQuad = quad;
-      setDetectStatus("Card detected.");
+      setDetectStatus("9♠ detected.");
     } else {
       detectedQuad = fallbackQuadFromGuideRect();
-      setDetectStatus("Card outline not found — using guide box instead.");
+      setDetectStatus("9♠ not matched — using guide box instead.");
     }
   } catch (err) {
     detectedQuad = fallbackQuadFromGuideRect();
@@ -426,6 +533,15 @@ document.getElementById("shareBtn").addEventListener("click", () => {
 /* ---------- NAVIGATION ---------- */
 
 document.getElementById("startTrickBtn").addEventListener("click", () => {
+  captureMode = "trick";
+  setCameraHint("Keep the card roughly inside the outline");
+  showScreen("camera");
+  startCamera();
+});
+
+document.getElementById("setReferenceBtn").addEventListener("click", () => {
+  captureMode = "reference";
+  setCameraHint("Align your real 9 of spades, then tap capture");
   showScreen("camera");
   startCamera();
 });

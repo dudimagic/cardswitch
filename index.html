@@ -12,8 +12,10 @@
   <section id="menuScreen" class="screen">
     <div class="menu-wrap">
       <h1>Card Switch</h1>
-      <p class="subtitle">Snap a card, reveal any card you want.</p>
+      <p class="subtitle">Always show the 9 of spades — reveal any card you want.</p>
       <button class="menu-btn" id="startTrickBtn">Start Trick</button>
+      <button class="menu-btn secondary" id="setReferenceBtn">Set Reference Card (9♠)</button>
+      <div class="reference-status" id="referenceStatus"></div>
       <div class="menu-note">Camera access is required — this only works when served over https or localhost, not opened as a plain file.</div>
     </div>
   </section>
@@ -23,7 +25,7 @@
     <div class="camera-wrap" id="cameraWrap">
       <video id="cameraVideo" autoplay playsinline muted></video>
       <div class="guide-rect" id="guideRect"></div>
-      <div class="camera-hint">Keep the card roughly inside the outline</div>
+      <div class="camera-hint" id="cameraHint">Keep the card roughly inside the outline</div>
       <div class="camera-error hidden" id="cameraError"></div>
     </div>
     <div class="camera-controls">

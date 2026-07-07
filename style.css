@@ -63,6 +63,9 @@ body {
 }
 
 .menu-btn {
+  display: block;
+  margin: 0 auto;
+  width: fit-content;
   background: var(--accent);
   border: none;
   color: #0c1020;
@@ -74,6 +77,21 @@ body {
 }
 
 .menu-btn:active { transform: scale(0.97); }
+
+.menu-btn.secondary {
+  background: var(--card-bg-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  padding: 12px 24px;
+  margin-top: 14px;
+}
+
+.reference-status {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
 
 .menu-note {
   margin-top: 28px;
