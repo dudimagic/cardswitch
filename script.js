@@ -248,9 +248,14 @@ function detectCardQuad(canvas) {
   const refDescriptors = new cv.Mat();
   const sceneDescriptors = new cv.Mat();
   const emptyMask = new cv.Mat();
-  const matches = new cv.DMatchVector();
-  const orb = new cv.ORB(1500);
-  const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+  const knnMatches = new cv.DMatchVectorVector();
+  const orb = new cv.ORB(2500);
+  // crossCheck must be off to use knnMatch — Lowe's ratio test below is a
+  // stricter, more standard replacement for it anyway: a match is only
+  // trusted if it's clearly better than the *second*-best candidate, which
+  // rejects the ambiguous matches that were letting the corner estimate
+  // drift on a low-detail subject like a mostly-blank playing card.
+  const bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
   let srcMat = null;
   let dstMat = null;
   let H = null;
@@ -266,14 +271,17 @@ function detectCardQuad(canvas) {
 
     if (refDescriptors.rows < 10 || sceneDescriptors.rows < 10) return null;
 
-    bf.match(refDescriptors, sceneDescriptors, matches);
+    bf.knnMatch(refDescriptors, sceneDescriptors, knnMatches, 2);
 
-    const matchArr = [];
-    for (let i = 0; i < matches.size(); i++) matchArr.push(matches.get(i));
-    if (matchArr.length < 15) return null;
-
-    matchArr.sort((a, b) => a.distance - b.distance);
-    const good = matchArr.slice(0, Math.min(80, matchArr.length));
+    const good = [];
+    for (let i = 0; i < knnMatches.size(); i++) {
+      const pair = knnMatches.get(i);
+      if (pair.size() < 2) continue;
+      const m = pair.get(0);
+      const n = pair.get(1);
+      if (m.distance < 0.75 * n.distance) good.push(m);
+    }
+    if (good.length < 15) return null;
 
     const srcPtsArr = [];
     const dstPtsArr = [];
@@ -286,7 +294,7 @@ function detectCardQuad(canvas) {
 
     srcMat = cv.matFromArray(good.length, 1, cv.CV_32FC2, srcPtsArr);
     dstMat = cv.matFromArray(good.length, 1, cv.CV_32FC2, dstPtsArr);
-    H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5);
+    H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 3);
     if (H.empty()) return null;
 
     refCorners = cv.matFromArray(4, 1, cv.CV_32FC2, [
@@ -315,7 +323,7 @@ function detectCardQuad(canvas) {
     refDescriptors.delete();
     sceneDescriptors.delete();
     emptyMask.delete();
-    matches.delete();
+    knnMatches.delete();
     orb.delete();
     bf.delete();
     if (srcMat) srcMat.delete();
