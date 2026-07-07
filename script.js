@@ -465,6 +465,8 @@ function compositeWithOpenCv(canvas, img) {
   let notSkin = null;
   let finalMask = null;
 
+  let colorMatched = null;
+
   try {
     cv.warpPerspective(cardMat, warped, M, new cv.Size(photoMat.cols, photoMat.rows));
     quadVec.push_back(quadPtsInt);
@@ -476,7 +478,13 @@ function compositeWithOpenCv(canvas, img) {
     finalMask = new cv.Mat();
     cv.bitwise_and(quadMask, notSkin, finalMask);
 
-    warped.copyTo(photoMat, finalMask);
+    try {
+      colorMatched = matchColorToRegion(warped, photoMat, finalMask);
+    } catch (err) {
+      colorMatched = null; // fall back to the un-matched warp below
+    }
+
+    (colorMatched || warped).copyTo(photoMat, finalMask);
     cv.imshow(canvas, photoMat);
   } finally {
     photoMat.delete();
@@ -491,6 +499,63 @@ function compositeWithOpenCv(canvas, img) {
     if (skinMask) skinMask.delete();
     if (notSkin) notSkin.delete();
     if (finalMask) finalMask.delete();
+    if (colorMatched) colorMatched.delete();
+  }
+}
+
+// Rescales `srcRgba`'s LAB color statistics (lightness, color temperature,
+// contrast) to match `targetRgba`'s statistics within `mask`, so the pasted
+// card picks up the real photo's actual lighting instead of looking flat.
+function matchColorToRegion(srcRgba, targetRgba, mask) {
+  const srcRgb = new cv.Mat();
+  const targetRgb = new cv.Mat();
+  const srcLab = new cv.Mat();
+  const targetLab = new cv.Mat();
+  const srcMean = new cv.Mat();
+  const srcStd = new cv.Mat();
+  const targetMean = new cv.Mat();
+  const targetStd = new cv.Mat();
+  let adjustedRgb = null;
+  let adjustedRgba = null;
+
+  try {
+    cv.cvtColor(srcRgba, srcRgb, cv.COLOR_RGBA2RGB);
+    cv.cvtColor(targetRgba, targetRgb, cv.COLOR_RGBA2RGB);
+    cv.cvtColor(srcRgb, srcLab, cv.COLOR_RGB2Lab);
+    cv.cvtColor(targetRgb, targetLab, cv.COLOR_RGB2Lab);
+
+    cv.meanStdDev(srcLab, srcMean, srcStd, mask);
+    cv.meanStdDev(targetLab, targetMean, targetStd, mask);
+
+    const sm = [srcMean.doubleAt(0, 0), srcMean.doubleAt(1, 0), srcMean.doubleAt(2, 0)];
+    const ss = [srcStd.doubleAt(0, 0), srcStd.doubleAt(1, 0), srcStd.doubleAt(2, 0)];
+    const tm = [targetMean.doubleAt(0, 0), targetMean.doubleAt(1, 0), targetMean.doubleAt(2, 0)];
+    const ts = [targetStd.doubleAt(0, 0), targetStd.doubleAt(1, 0), targetStd.doubleAt(2, 0)];
+
+    const data = srcLab.data;
+    for (let i = 0; i < data.length; i += 3) {
+      for (let c = 0; c < 3; c++) {
+        const std = ss[c] < 1e-3 ? 1 : ss[c];
+        const v = (data[i + c] - sm[c]) * (ts[c] / std) + tm[c];
+        data[i + c] = Math.max(0, Math.min(255, v));
+      }
+    }
+
+    adjustedRgb = new cv.Mat();
+    cv.cvtColor(srcLab, adjustedRgb, cv.COLOR_Lab2RGB);
+    adjustedRgba = new cv.Mat();
+    cv.cvtColor(adjustedRgb, adjustedRgba, cv.COLOR_RGB2RGBA);
+    return adjustedRgba;
+  } finally {
+    srcRgb.delete();
+    targetRgb.delete();
+    srcLab.delete();
+    targetLab.delete();
+    srcMean.delete();
+    srcStd.delete();
+    targetMean.delete();
+    targetStd.delete();
+    if (adjustedRgb) adjustedRgb.delete();
   }
 }
 
