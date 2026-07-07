@@ -47,6 +47,23 @@
     <div class="card-grid" id="pickGrid"></div>
   </section>
 
+  <!-- REFERENCE CORNER ADJUSTMENT SCREEN -->
+  <section id="refAdjustScreen" class="screen hidden fullbleed dark-photo-viewer">
+    <div class="ref-adjust-hint">Drag each dot onto the real card's exact corner</div>
+    <div class="ref-adjust-stage" id="refAdjustStage">
+      <img id="refAdjustImage" alt="Align corners to the real card">
+      <svg class="ref-adjust-svg"><polygon id="refAdjustPolygon" points=""></polygon></svg>
+      <div class="corner-dot" id="refDot0"></div>
+      <div class="corner-dot" id="refDot1"></div>
+      <div class="corner-dot" id="refDot2"></div>
+      <div class="corner-dot" id="refDot3"></div>
+    </div>
+    <div class="ref-adjust-controls">
+      <button class="round-btn secondary" id="refAdjustBackBtn">&larr;</button>
+      <button class="menu-btn" id="refAdjustSaveBtn">Save Reference</button>
+    </div>
+  </section>
+
   <!-- FAKE GALLERY / PHOTO VIEWER SCREEN -->
   <section id="galleryScreen" class="screen hidden fullbleed dark-photo-viewer">
     <div class="photo-viewer">
@@ -85,6 +102,6 @@
     }
   </script>
   <script async src="assets/opencv.js" onload="onOpenCvReady()"></script>
-  <script src="script.js?v=11"></script>
+  <script src="script.js?v=12"></script>
 </body>
 </html>

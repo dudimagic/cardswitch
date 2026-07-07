@@ -45,7 +45,7 @@ let detectedQuad = null;
 let captureMode = "trick"; // "trick" | "reference"
 
 function showScreen(name) {
-  ["menu", "camera", "pick", "gallery"].forEach((n) => {
+  ["menu", "camera", "pick", "gallery", "refAdjust"].forEach((n) => {
     document.getElementById(`${n}Screen`).classList.toggle("hidden", n !== name);
   });
 }
@@ -80,15 +80,12 @@ function updateReferenceStatus() {
 }
 updateReferenceStatus();
 
-// The guide box is hand-aligned to the real card by eye, so the raw crop
-// almost always includes a bit of background margin around the actual
-// card edges. Every future detection treats this crop's full bounds as
-// the card's four corners, so that margin gets baked into every detected
-// quad afterward, making the replacement consistently oversized. This
-// finds the card's actual tight boundary within the crop (bright card
-// against a comparatively darker background) and re-crops to just that,
-// so detection isn't dependent on pixel-perfect manual alignment.
-function tightenCardCrop(canvas) {
+// Best-effort starting guess for the reference card's four corners within
+// `canvas` — Otsu-thresholds to separate the bright card from a
+// comparatively darker background, then finds the bounding box of that
+// region. Only used to seed the draggable corners at a reasonable
+// position; the user's manual placement is what actually gets saved.
+function deriveTightBoundingBox(canvas) {
   const mat = cv.imread(canvas);
   const gray = new cv.Mat();
   const binary = new cv.Mat();
@@ -123,18 +120,10 @@ function tightenCardCrop(canvas) {
 
     const boxW = right - left;
     const boxH = bottom - top;
-    // sanity-check the result — if thresholding didn't cleanly separate
-    // the card from its background, fall back to the untightened crop
-    // rather than risk cropping into the card itself
-    if (boxW < w * 0.5 || boxH < h * 0.5) return canvas;
-
-    const tightCanvas = document.createElement("canvas");
-    tightCanvas.width = boxW;
-    tightCanvas.height = boxH;
-    tightCanvas.getContext("2d").drawImage(canvas, left, top, boxW, boxH, 0, 0, boxW, boxH);
-    return tightCanvas;
+    if (boxW < w * 0.5 || boxH < h * 0.5) return null;
+    return { x: left, y: top, width: boxW, height: boxH };
   } catch (err) {
-    return canvas;
+    return null;
   } finally {
     mat.delete();
     gray.delete();
@@ -142,20 +131,149 @@ function tightenCardCrop(canvas) {
   }
 }
 
-function saveReferenceCardFromCapture() {
-  const r = guideRectNative;
-  const cropCanvas = document.createElement("canvas");
-  cropCanvas.width = Math.round(r.width);
-  cropCanvas.height = Math.round(r.height);
-  cropCanvas
-    .getContext("2d")
-    .drawImage(capturedPhotoCanvas, r.x, r.y, r.width, r.height, 0, 0, cropCanvas.width, cropCanvas.height);
+/* ---------- REFERENCE CORNER ADJUSTMENT ---------- */
 
-  const finalCanvas = window.cvReady ? tightenCardCrop(cropCanvas) : cropCanvas;
-  localStorage.setItem(REFERENCE_KEY, finalCanvas.toDataURL("image/jpeg", 0.95));
-  loadReferenceImageIntoMemory();
-  updateReferenceStatus();
+// Four corners in full-photo (capturedPhotoCanvas) pixel coordinates,
+// ordered top-left, top-right, bottom-right, bottom-left.
+let refAdjustNative = null;
+let refAdjustDragIndex = null;
+
+function refAdjustDisplayMetrics() {
+  const img = document.getElementById("refAdjustImage");
+  const stage = document.getElementById("refAdjustStage");
+  const imgBox = img.getBoundingClientRect();
+  const stageBox = stage.getBoundingClientRect();
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  const scale = Math.min(imgBox.width / nw, imgBox.height / nh);
+  const renderedW = nw * scale;
+  const renderedH = nh * scale;
+  return {
+    scale,
+    offsetX: imgBox.left + (imgBox.width - renderedW) / 2 - stageBox.left,
+    offsetY: imgBox.top + (imgBox.height - renderedH) / 2 - stageBox.top,
+  };
 }
+
+function layoutRefAdjustPoints() {
+  if (!refAdjustNative) return;
+  const m = refAdjustDisplayMetrics();
+  const screenPts = refAdjustNative.map((p) => ({
+    x: m.offsetX + p.x * m.scale,
+    y: m.offsetY + p.y * m.scale,
+  }));
+  screenPts.forEach((p, i) => {
+    const dot = document.getElementById(`refDot${i}`);
+    dot.style.left = `${p.x}px`;
+    dot.style.top = `${p.y}px`;
+  });
+  const polygon = document.getElementById("refAdjustPolygon");
+  polygon.setAttribute("points", screenPts.map((p) => `${p.x},${p.y}`).join(" "));
+}
+
+function showReferenceAdjustScreen() {
+  const img = document.getElementById("refAdjustImage");
+  img.onload = () => {
+    const r = guideRectNative;
+    const guessBox = window.cvReady
+      ? (() => {
+          const cropCanvas = document.createElement("canvas");
+          cropCanvas.width = Math.round(r.width);
+          cropCanvas.height = Math.round(r.height);
+          cropCanvas
+            .getContext("2d")
+            .drawImage(capturedPhotoCanvas, r.x, r.y, r.width, r.height, 0, 0, cropCanvas.width, cropCanvas.height);
+          const tight = deriveTightBoundingBox(cropCanvas);
+          return tight ? { x: r.x + tight.x, y: r.y + tight.y, width: tight.width, height: tight.height } : r;
+        })()
+      : r;
+
+    refAdjustNative = [
+      { x: guessBox.x, y: guessBox.y },
+      { x: guessBox.x + guessBox.width, y: guessBox.y },
+      { x: guessBox.x + guessBox.width, y: guessBox.y + guessBox.height },
+      { x: guessBox.x, y: guessBox.y + guessBox.height },
+    ];
+    layoutRefAdjustPoints();
+  };
+  img.src = capturedPhotoCanvas.toDataURL("image/jpeg", 0.95);
+  showScreen("refAdjust");
+}
+
+function startDotDrag(index, clientX, clientY) {
+  refAdjustDragIndex = index;
+  moveDotDrag(clientX, clientY);
+}
+
+function moveDotDrag(clientX, clientY) {
+  if (refAdjustDragIndex === null) return;
+  const m = refAdjustDisplayMetrics();
+  const stage = document.getElementById("refAdjustStage");
+  const stageBox = stage.getBoundingClientRect();
+  const nx = (clientX - stageBox.left - m.offsetX) / m.scale;
+  const ny = (clientY - stageBox.top - m.offsetY) / m.scale;
+  refAdjustNative[refAdjustDragIndex] = { x: nx, y: ny };
+  layoutRefAdjustPoints();
+}
+
+function endDotDrag() {
+  refAdjustDragIndex = null;
+}
+
+[0, 1, 2, 3].forEach((i) => {
+  const dot = document.getElementById(`refDot${i}`);
+  dot.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    startDotDrag(i, e.clientX, e.clientY);
+  });
+});
+document.addEventListener("pointermove", (e) => moveDotDrag(e.clientX, e.clientY));
+document.addEventListener("pointerup", endDotDrag);
+document.addEventListener("pointercancel", endDotDrag);
+window.addEventListener("resize", () => {
+  if (!document.getElementById("refAdjustScreen").classList.contains("hidden")) layoutRefAdjustPoints();
+});
+
+function saveReferenceFromAdjustedCorners() {
+  if (!refAdjustNative) return;
+  if (!window.cvReady) {
+    alert("Still loading the vision engine — wait a moment and try again.");
+    return;
+  }
+
+  const [tl, tr, br, bl] = refAdjustNative;
+  const outW = 350;
+  const outH = 490; // matches a standard card's 2.5:3.5 aspect ratio
+  const photoMat = cv.imread(capturedPhotoCanvas);
+  const warped = new cv.Mat();
+  const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
+  const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, outW, 0, outW, outH, 0, outH]);
+  const M = cv.getPerspectiveTransform(srcPts, dstPts);
+  try {
+    cv.warpPerspective(photoMat, warped, M, new cv.Size(outW, outH));
+    const outCanvas = document.createElement("canvas");
+    outCanvas.width = outW;
+    outCanvas.height = outH;
+    const imageData = new ImageData(new Uint8ClampedArray(warped.data), outW, outH);
+    outCanvas.getContext("2d").putImageData(imageData, 0, 0);
+    localStorage.setItem(REFERENCE_KEY, outCanvas.toDataURL("image/jpeg", 0.95));
+    loadReferenceImageIntoMemory();
+    updateReferenceStatus();
+    showScreen("menu");
+  } finally {
+    photoMat.delete();
+    warped.delete();
+    srcPts.delete();
+    dstPts.delete();
+    M.delete();
+  }
+}
+
+document.getElementById("refAdjustSaveBtn").addEventListener("click", saveReferenceFromAdjustedCorners);
+document.getElementById("refAdjustBackBtn").addEventListener("click", () => {
+  showScreen("camera");
+  startCamera();
+});
 
 /* ---------- CAMERA ---------- */
 
@@ -234,8 +352,7 @@ function takePhoto() {
   stopCamera();
 
   if (captureMode === "reference") {
-    saveReferenceCardFromCapture();
-    showScreen("menu");
+    showReferenceAdjustScreen();
     return;
   }
 

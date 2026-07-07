@@ -368,3 +368,69 @@ body {
   cursor: pointer;
   z-index: 3;
 }
+
+/* REFERENCE CORNER ADJUSTMENT */
+#refAdjustScreen {
+  display: flex;
+  flex-direction: column;
+}
+
+.ref-adjust-hint {
+  padding: calc(env(safe-area-inset-top) + 14px) 16px 10px;
+  text-align: center;
+  color: #fff;
+  font-size: 13px;
+}
+
+.ref-adjust-stage {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ref-adjust-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.ref-adjust-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ref-adjust-svg polygon {
+  fill: rgba(0, 255, 0, 0.12);
+  stroke: #00ff00;
+  stroke-width: 2;
+}
+
+.corner-dot {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  border-radius: 50%;
+  background: rgba(0, 255, 0, 0.35);
+  border: 2px solid #00ff00;
+  touch-action: none;
+  cursor: grab;
+}
+
+.corner-dot:active {
+  cursor: grabbing;
+  background: rgba(0, 255, 0, 0.55);
+}
+
+.ref-adjust-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px calc(env(safe-area-inset-bottom) + 14px);
+  background: #000;
+}
